@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import sqlite3
 from typing import Optional
 from urllib.parse import urljoin
@@ -12,6 +13,37 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
+
+
+def normalize_reader_env_key(reader_name: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", "_", reader_name.upper()).strip("_")
+
+
+def build_readers() -> dict[str, dict[str, str | None]]:
+    reader_names = [
+        reader.strip()
+        for reader in os.getenv("CALIBRE_READERS", "peter,pam").split(",")
+        if reader.strip()
+    ]
+
+    readers: dict[str, dict[str, str | None]] = {}
+    for reader in reader_names:
+        env_key = normalize_reader_env_key(reader)
+        shelf_default = os.getenv(f"{env_key}_RECOMMEND_SHELF")
+        if shelf_default is None:
+            shelf_default = f"{reader.title()} Books"
+
+        readers[reader.lower()] = {
+            "username": os.getenv(f"{env_key}_CALIBRE_USERNAME"),
+            "password": os.getenv(f"{env_key}_CALIBRE_PASSWORD"),
+            "recommend_shelf": shelf_default,
+        }
+
+    return readers
+
+
+READERS = build_readers()
+DEFAULT_READER = next(iter(READERS)) if READERS else "peter"
 
 
 def resolve_db_path(env_key: str, fallback_names: list[str]) -> str | None:
@@ -51,19 +83,6 @@ CALIBRE_LIBRARY_DB_SOURCE = (
     "env" if os.getenv("CALIBRE_LIBRARY_DB") else ("fallback" if CALIBRE_LIBRARY_DB else "missing")
 )
 
-READERS = {
-    "peter": {
-        "username": os.getenv("PETER_CALIBRE_USERNAME"),
-        "password": os.getenv("PETER_CALIBRE_PASSWORD"),
-        "recommend_shelf": "AI Recommended",
-    },
-    "pam": {
-        "username": os.getenv("PAM_CALIBRE_USERNAME"),
-        "password": os.getenv("PAM_CALIBRE_PASSWORD"),
-        "recommend_shelf": "Pams Books",
-    },
-}
-
 api_key_header = APIKeyHeader(name="x-api-key", auto_error=False)
 
 
@@ -74,7 +93,7 @@ class ShelfAddRequest(BaseModel):
 
 class ReaderShelfAddRequest(BaseModel):
     book_id: int
-    reader: str = "peter"
+    reader: str = DEFAULT_READER
 
 
 def require_api_key(x_api_key: str = Depends(api_key_header)):
@@ -99,7 +118,7 @@ def get_reader(reader: str):
     return reader_key, profile
 
 
-def fetch_opds(path: str, reader: str = "peter"):
+def fetch_opds(path: str, reader: str = DEFAULT_READER):
     if not CALIBRE_BASE_URL:
         raise HTTPException(status_code=500, detail="CALIBRE_BASE_URL not set")
 
@@ -122,7 +141,7 @@ def fetch_opds(path: str, reader: str = "peter"):
     return feedparser.parse(response.text)
 
 
-def fetch_books_from_feed(path: str, limit: int, reader: str = "peter"):
+def fetch_books_from_feed(path: str, limit: int, reader: str = DEFAULT_READER):
     feed = fetch_opds(path, reader)
     return [normalise_entry(entry) for entry in feed.entries[:limit]]
 
@@ -467,7 +486,7 @@ def config():
 
 @app.get("/books/unread", dependencies=[Depends(require_api_key)])
 def unread_books(
-    reader: str = "peter",
+    reader: str = DEFAULT_READER,
     limit: int = Query(default=20, ge=1, le=100),
 ):
     feed = fetch_opds("/opds/unreadbooks", reader)
@@ -483,7 +502,7 @@ def unread_books(
 
 @app.get("/books/random", dependencies=[Depends(require_api_key)])
 def random_books(
-    reader: str = "peter",
+    reader: str = DEFAULT_READER,
     limit: int = Query(default=20, ge=1, le=100),
 ):
     feed = fetch_opds("/opds/discover", reader)
@@ -500,7 +519,7 @@ def random_books(
 @app.get("/books/search", dependencies=[Depends(require_api_key)])
 def search_books(
     q: str = Query(..., min_length=1),
-    reader: str = "peter",
+    reader: str = DEFAULT_READER,
     limit: int = Query(default=20, ge=1, le=100),
 ):
     feed = fetch_opds(f"/opds/search/{q}", reader)
@@ -518,7 +537,7 @@ def search_books(
 @app.get("/books/search-complete", dependencies=[Depends(require_api_key)])
 def search_complete(
     q: str = Query(..., min_length=1),
-    reader: str = "peter",
+    reader: str = DEFAULT_READER,
     limit: int = Query(default=25, ge=1, le=100),
 ):
     search_term = f"%{q.strip()}%"
@@ -633,7 +652,7 @@ def search_complete(
 @app.get("/books/recommend", dependencies=[Depends(require_api_key)])
 def recommend_books(
     mood: str = "general",
-    reader: str = "peter",
+    reader: str = DEFAULT_READER,
     limit: int = Query(default=10, ge=1, le=50),
 ):
     feed = fetch_opds("/opds/unreadbooks", reader)
@@ -651,7 +670,7 @@ def recommend_books(
 @app.get("/books/recommend-ai", dependencies=[Depends(require_api_key)])
 def recommend_ai(
     mood: str = "general",
-    reader: str = "peter",
+    reader: str = DEFAULT_READER,
     limit: int = Query(default=5, ge=1, le=20),
     pool: int = Query(default=300, ge=50, le=1000),
 ):
