@@ -123,12 +123,21 @@ def fetch_opds(path: str, reader: str = DEFAULT_READER):
         raise HTTPException(status_code=500, detail="CALIBRE_BASE_URL not set")
 
     reader_key, profile = get_reader(reader)
+    username = profile["username"]
+    password = profile["password"]
+
+    if username is None or password is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Credentials not set for reader: {reader_key}",
+        )
+
     url = urljoin(CALIBRE_BASE_URL + "/", path.lstrip("/"))
 
     try:
         response = requests.get(
             url,
-            auth=(profile["username"], profile["password"]),
+            auth=(username, password),
             timeout=20,
         )
         response.raise_for_status()
@@ -776,9 +785,12 @@ def add_book_to_shelf(request: ShelfAddRequest):
 @app.post("/shelves/add-book-for-reader", dependencies=[Depends(require_api_key)])
 def add_book_for_reader(request: ReaderShelfAddRequest):
     reader_key, profile = get_reader(request.reader)
+    recommend_shelf = profile["recommend_shelf"]
+    if recommend_shelf is None:
+        recommend_shelf = f"{reader_key.title()} Books"
 
     return add_book_to_named_shelf(
         book_id=request.book_id,
-        shelf_name=profile["recommend_shelf"],
+        shelf_name=recommend_shelf,
         reader=reader_key,
     )
