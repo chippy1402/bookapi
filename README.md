@@ -40,6 +40,20 @@ CALIBRE_WEB_DB=
 CALIBRE_LIBRARY_DB=
 ```
 
+You can replace `peter` and `pam` with any reader keys you want, for example:
+
+```env
+CALIBRE_READERS=alice,bob
+
+ALICE_CALIBRE_USERNAME=
+ALICE_CALIBRE_PASSWORD=
+ALICE_RECOMMEND_SHELF=Alice Books
+
+BOB_CALIBRE_USERNAME=
+BOB_CALIBRE_PASSWORD=
+BOB_RECOMMEND_SHELF=Bob Books
+```
+
 ### Notes
 
 - `CALIBRE_READERS` defines the reader keys used by the API.
