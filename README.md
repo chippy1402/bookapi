@@ -1,110 +1,143 @@
-Book Coach API
+# Book Coach API
 
 Personal Calibre-Web recommendation and shelf API.
 
-Designed for use with custom ChatGPT GPTs and ChatGPT Actions.
+Designed for custom ChatGPT GPTs and ChatGPT Actions.
 
-The API provides:
+## Features
 
-* mood-based recommendations
-* full library metadata search
-* reader-aware shelves
-* multi-user support
-* Kobo-friendly workflows
-* series-aware recommendations
+- Mood-based recommendations
+- Full library metadata search
+- Reader-aware shelves
+- Multi-user support
+- Kobo-friendly workflows
+- Series-aware recommendations
 
-⸻
+## Setup
 
-Setup
+1. Create and activate the virtual environment:
 
-Create and activate the virtual environment
-
+```bash
 python3 -m venv venv
 source venv/bin/activate
+```
 
-Install dependencies
+2. Install dependencies:
 
+```bash
 pip install -r requirements.txt
+```
 
-Create .env
+3. Create `.env`:
 
-Copy .env from the example values and set your own credentials and paths.
+Copy the example values and set your own credentials and paths.
 
-⸻
+## Required `.env` settings
 
-Required .env settings
-
+```env
 CALIBRE_READERS=peter,pam
+
 PETER_CALIBRE_USERNAME=
 PETER_CALIBRE_PASSWORD=
 PETER_RECOMMEND_SHELF=AI Recommended
+
 PAM_CALIBRE_USERNAME=
 PAM_CALIBRE_PASSWORD=
 PAM_RECOMMEND_SHELF=Pams Books
+
 CALIBRE_BASE_URL=
 BOOK_API_KEY=
 CALIBRE_WEB_DB=
 CALIBRE_LIBRARY_DB=
+```
 
-You can replace peter and pam with any reader keys you want.
+You can replace `peter` and `pam` with any reader keys you want. For example:
 
-Example:
-
+```env
 CALIBRE_READERS=alice,bob
+
 ALICE_CALIBRE_USERNAME=
 ALICE_CALIBRE_PASSWORD=
 ALICE_RECOMMEND_SHELF=Alice Books
+
 BOB_CALIBRE_USERNAME=
 BOB_CALIBRE_PASSWORD=
 BOB_RECOMMEND_SHELF=Bob Books
+```
 
-⸻
+## Reader Notes
 
-Reader Notes
+- `CALIBRE_READERS` defines the available reader keys.
+- If `CALIBRE_READERS` is omitted, the default readers are `peter,pam`.
+- For each reader key, the app loads:
+  - `${READER}_CALIBRE_USERNAME`
+  - `${READER}_CALIBRE_PASSWORD`
+  - `${READER}_RECOMMEND_SHELF`
+- The `reader` query parameter defaults to the first reader listed.
 
-* CALIBRE_READERS defines the available reader keys.
-* If CALIBRE_READERS is omitted, defaults are peter,pam.
-* For each reader key the API loads:
-    * ${READER}_CALIBRE_USERNAME
-    * ${READER}_CALIBRE_PASSWORD
-    * ${READER}_RECOMMEND_SHELF
-* The reader query parameter defaults to the first reader listed.
+## Database Notes
 
-⸻
-
-Database Notes
-
-CALIBRE_WEB_DB
+### `CALIBRE_WEB_DB`
 
 Used for:
 
-* shelves
-* user accounts
-* Kobo sync information
-* Calibre-Web internal state
+- shelves
+- user accounts
+- Kobo sync information
+- Calibre-Web internal state
 
 Example:
 
+```env
 CALIBRE_WEB_DB=/data/calibre-web-app.db
+```
 
-CALIBRE_LIBRARY_DB
+### `CALIBRE_LIBRARY_DB`
 
 Used for:
 
-* full metadata search
-* series information
-* tags
-* authors
-* descriptions/comments
+- full metadata search
+- series information
+- tags
+- authors
+- descriptions/comments
 
 Example:
 
+```env
 CALIBRE_LIBRARY_DB=/data/calibre-library-metadata.db
+```
 
-⸻
+### Fallback database filenames
 
-Docker Example
+If `CALIBRE_WEB_DB` is unset, the app will look for:
 
+- `app.db`
+- `calibre-web.db`
+- `db/app.db`
+- `database/app.db`
+
+If `CALIBRE_LIBRARY_DB` is unset, the app will look for:
+
+- `metadata.db`
+- `library.db`
+- `db/metadata.db`
+- `database/metadata.db`
+
+## Running the App
+
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8095
+```
+
+Open the API docs at:
+
+- `http://127.0.0.1:8095/docs`
+- `http://127.0.0.1:8095/openapi.json`
+
+## Docker Example
+
+```yaml
 services:
   book-coach:
     build: .
@@ -119,84 +152,56 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+```
 
-⸻
+## ChatGPT / Custom GPT Integration
 
-Running the App
+### Create a Custom GPT
 
-uvicorn main:app --reload --host 0.0.0.0 --port 8095
+1. Open ChatGPT
+2. Go to Explore GPTs
+3. Click Create
+4. Open the Configure tab
 
-API docs:
-
-http://127.0.0.1:8095/docs
-
-OpenAPI schema:
-
-http://127.0.0.1:8095/openapi.json
-
-⸻
-
-Using with Custom ChatGPT GPTs
-
-Create a Custom GPT
-
-1. Open ChatGPT.
-2. Go to Explore GPTs.
-3. Click Create.
-4. Open the Configure tab.
-
-⸻
-
-Add the API as an Action
+### Add the API as an Action
 
 Under Actions:
 
-1. Click Create new action.
+1. Click Create new action
 2. Import from URL:
 
+```text
 https://your-api-domain/openapi.json
+```
 
 Example:
 
+```text
 https://bookapi.example.com/openapi.json
+```
 
 The GPT will automatically load the available endpoints.
 
-⸻
+## Authentication
 
-Authentication
+Use the API key header:
 
-Use:
+- Header name: `x-api-key`
+- Value: the same value used for `BOOK_API_KEY`
 
-API Key
+## Example GPT Instructions
 
-Header name:
+- This GPT acts as a thoughtful literary companion.
+- Use the configured reader key as the default for requests.
+- For mood-based recommendations, use `/books/recommend-ai`.
+- For deliberate search use `/books/search-complete`.
+- For shelf operations use `/shelves/add-book-for-reader`.
+- If a book is part of a series, mention the series name and book number.
+- Avoid recommending later books in a series without warning the user.
 
-x-api-key
+## Git
 
-Paste the same value used for:
-
-BOOK_API_KEY=
-
-⸻
-
-Example GPT Instructions
-
-This GPT acts as a thoughtful literary companion.
-Always use reader=peter when calling the Book Coach API.
-For mood-based recommendations, use:
-/books/recommend-ai
-For deliberate searches such as:
-- “do I own”
-- “find books about”
-- “books by”
-- “search for”
-use:
-/books/search-complete
-When adding books to shelves, use:
-/shelves/add-book-for-reader
-Avoid recommending later books in a series without warning the user.
-If a book is part of a series, mention the series name and book number.
+Keep `.env`, `venv/`, and local caches out of source control. Add them to `.gitignore` before pushing.
 
 ⸻
 
