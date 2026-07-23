@@ -94,6 +94,7 @@ class ShelfAddRequest(BaseModel):
 class ReaderShelfAddRequest(BaseModel):
     book_id: int
     reader: str = DEFAULT_READER
+    shelf_name: Optional[str] = None
 
 
 def require_api_key(x_api_key: str = Depends(api_key_header)):
@@ -358,6 +359,57 @@ def find_user_id_for_reader(reader: str):
             )
 
         return row["id"]
+
+
+def list_shelves_for_reader(reader: Optional[str] = None):
+    user_id = find_user_id_for_reader(reader) if reader else None
+
+    with db_connect() as conn:
+        cur = conn.cursor()
+
+        if user_id is not None:
+            cur.execute(
+                """
+                SELECT
+                    shelf.*,
+                    user.name AS user_name,
+                    user.email AS user_email
+                FROM shelf
+                LEFT JOIN user
+                    ON user.id = shelf.user_id
+                WHERE shelf.user_id = ?
+                ORDER BY shelf.name
+                """,
+                (user_id,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    shelf.*,
+                    user.name AS user_name,
+                    user.email AS user_email
+                FROM shelf
+                LEFT JOIN user
+                    ON user.id = shelf.user_id
+                ORDER BY user.name, shelf.name
+                """
+            )
+
+        shelves = [dict(row) for row in cur.fetchall()]
+
+    reader_key = reader.lower().strip() if reader else None
+    default_shelf = None
+    if reader_key and reader_key in READERS:
+        default_shelf = READERS[reader_key].get("recommend_shelf") or f"{reader_key.title()} Books"
+
+    for shelf in shelves:
+        shelf["reader"] = reader_key
+        shelf["is_default_recommendation_shelf"] = bool(
+            default_shelf and shelf.get("name") == default_shelf
+        )
+
+    return shelves
 
 
 def get_shelf_by_name(shelf_name: str, reader: Optional[str] = None):
@@ -758,15 +810,26 @@ def recommend_ai(
 
 
 @app.get("/shelves", dependencies=[Depends(require_api_key)])
-def list_shelves():
-    with db_connect() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM shelf ORDER BY name")
-        shelves = [dict(row) for row in cur.fetchall()]
+def list_shelves(reader: Optional[str] = None):
+    shelves = list_shelves_for_reader(reader)
 
     return {
+        "reader": reader.lower().strip() if reader else None,
         "count": len(shelves),
         "shelves": shelves,
+    }
+
+
+@app.get("/shelves/for-reader", dependencies=[Depends(require_api_key)])
+def list_shelves_for_named_reader(reader: str = DEFAULT_READER):
+    reader_key, _ = get_reader(reader)
+    shelves = list_shelves_for_reader(reader_key)
+
+    return {
+        "reader": reader_key,
+        "count": len(shelves),
+        "shelves": shelves,
+        "instruction": "Choose one of these shelf names, then call /shelves/add-book-for-reader with book_id, reader, and shelf_name.",
     }
 
 
@@ -785,12 +848,41 @@ def add_book_to_shelf(request: ShelfAddRequest):
 @app.post("/shelves/add-book-for-reader", dependencies=[Depends(require_api_key)])
 def add_book_for_reader(request: ReaderShelfAddRequest):
     reader_key, profile = get_reader(request.reader)
-    recommend_shelf = profile["recommend_shelf"]
-    if recommend_shelf is None:
-        recommend_shelf = f"{reader_key.title()} Books"
 
-    return add_book_to_named_shelf(
-        book_id=request.book_id,
-        shelf_name=recommend_shelf,
-        reader=reader_key,
-    )
+    shelf_name = request.shelf_name
+    if not shelf_name:
+        shelf_name = profile["recommend_shelf"] or f"{reader_key.title()} Books"
+
+    try:
+        result = add_book_to_named_shelf(
+            book_id=request.book_id,
+            shelf_name=shelf_name,
+            reader=reader_key,
+        )
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+
+        shelves = list_shelves_for_reader(reader_key)
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": f"Shelf not found for reader '{reader_key}': {shelf_name}",
+                "reader": reader_key,
+                "requested_shelf": shelf_name,
+                "available_shelves": [
+                    {
+                        "id": shelf.get("id"),
+                        "name": shelf.get("name"),
+                        "is_default_recommendation_shelf": shelf.get(
+                            "is_default_recommendation_shelf"
+                        ),
+                    }
+                    for shelf in shelves
+                ],
+                "next_step": "Pick one available shelf name and retry with shelf_name set.",
+            },
+        )
+
+    result["available_shelves_endpoint"] = f"/shelves/for-reader?reader={reader_key}"
+    return result
